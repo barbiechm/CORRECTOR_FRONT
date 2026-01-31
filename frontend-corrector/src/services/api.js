@@ -1,7 +1,7 @@
 // src/services/api.js
 
 // URL que viste en tu consola negra de C#
-const API_URL = "https://localhost:7180/api/Corrector"; 
+const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:7180") + "/api/Corrector"; 
 
 export const procesarExamenes = async (archivoProfesor, archivoEstudiante) => {
   const formData = new FormData();
