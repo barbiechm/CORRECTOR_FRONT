@@ -1,157 +1,215 @@
 import React from 'react';
 
+// --- COMPONENTE NUEVO: Resaltador de Texto ---
+// --- COMPONENTE MEJORADO: Resaltador de Texto ---
+// --- COMPONENTE MEJORADO V3: Resaltador con Límites de Palabra ---
+const StudentAnswerHighlighter = ({ text, keyText }) => {
+  if (!text) return <span className="text-gray-400 italic">No respondió</span>;
+  if (!keyText) return <span>{text}</span>;
+
+  // 1. LIMPIEZA Y PREPARACIÓN DE KEYWORDS
+  const labelsToRemove = [
+    "persona:", "numero:", "número:", "tiempo:", "aspecto:", 
+    "modo:", "tipo de conjugación:", "tipo de conjugacion:", 
+    "vocal temática:", "vocal tematica:", "voz:", "flexión:", "flexion:", 
+    "significado:", "estructura:"
+  ];
+
+  const labelsRegex = new RegExp(`(${labelsToRemove.join('|')})`, 'gi');
+  
+  // Limpiamos etiquetas y comillas de la CLAVE
+  let cleanKey = keyText.replace(labelsRegex, ""); 
+  cleanKey = cleanKey.replace(/["“”'']/g, ""); 
+
+  // Generamos la lista de palabras/frases a buscar
+  const keywords = cleanKey
+    .split(/[,.;|-]|\s+o\s+/) // Separar por puntuación y por " o "
+    .map(k => k.trim().toLowerCase())
+    .filter(k => k.length > 0)
+    .sort((a, b) => b.length - a.length); // Las frases largas primero
+
+  if (keywords.length === 0) return <span>{text}</span>;
+
+  // 2. CONSTRUCCIÓN DE REGEX INTELIGENTE (EL FIX) 🧠
+  const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  
+  // Definimos qué es una "letra" en español (incluye tildes, ñ, ü)
+  const spanishChars = "a-zA-ZáéíóúÁÉÍÓÚñÑüÜ";
+  
+  // LOGICA DE FRONTERA:
+  // (?<![...]) -> "Lookbehind Negativo": Que NO tenga una letra antes
+  // ( ... )    -> El grupo de keywords
+  // (?![...])  -> "Lookahead Negativo": Que NO tenga una letra después
+  const patternString = `(?<![${spanishChars}])(${keywords.map(escapeRegExp).join('|')})(?![${spanishChars}])`;
+  
+  // Usamos try-catch por si el navegador es muy viejo y no soporta Lookbehind (raro hoy en día)
+  let regex;
+  try {
+    regex = new RegExp(patternString, 'gi');
+  } catch (e) {
+    // Fallback simple si falla (sin fronteras estrictas para español)
+    regex = new RegExp(`(${keywords.map(escapeRegExp).join('|')})`, 'gi');
+  }
+
+  // 3. DIVIDIR Y RENDERIZAR
+  const parts = text.split(regex);
+
+  return (
+    <span className="leading-relaxed">
+      {parts.map((part, i) => {
+        const cleanPart = part.toLowerCase().replace(/["“”'']/g, "").trim();
+        const isMatch = keywords.some(k => k === cleanPart);
+        
+        return isMatch ? (
+          <span key={i} className="bg-green-100 text-green-800 font-bold px-1 rounded mx-0.5 border border-green-200 shadow-sm">
+            {part}
+          </span>
+        ) : (
+          <span key={i}>{part}</span>
+        );
+      })}
+    </span>
+  );
+};
+
 export const ResultsDisplay = ({ data }) => {
   if (!data) return null;
 
-  const { resumen, detalle } = data;
+  const {
+    preguntas = [],
+    puntajeTotal = 0,
+    puntajeObtenido = 0,
+    porcentajeGeneral = 0,
+    correctas = 0,
+    parciales = 0,
+    incorrectas = 0,
+    noRespondidas = 0
+  } = data;
 
-  // 1. Lógica de Colores para el "Estado General" de la fila
   const getStatusBadge = (estado) => {
-    switch (estado) {
-      case "CORRECTA": 
-        return <span className="px-3 py-1 rounded-full text-xs font-bold border bg-green-100 text-green-800 border-green-200">CORRECTA</span>;
-      case "PARCIAL": 
-        return <span className="px-3 py-1 rounded-full text-xs font-bold border bg-yellow-100 text-yellow-800 border-yellow-200">PARCIAL</span>;
-      case "INCORRECTA": 
-        return <span className="px-3 py-1 rounded-full text-xs font-bold border bg-red-100 text-red-800 border-red-200">INCORRECTA</span>;
-      default: 
-        return <span className="px-3 py-1 rounded-full text-xs font-bold border bg-gray-100 text-gray-800 border-gray-200">NO RESPONDIÓ</span>;
-    }
-  };
-
-  // 2. ESTA ES LA FUNCIÓN QUE CAMBIAMOS (Maneja trampas y colores parciales)
-  const renderCellContent = (info) => {
-    if (!info) return <span className="text-gray-400">---</span>;
-
-    // --- CASO ESPECIAL: RESPUESTA TRAMPA / INNECESARIA ---
-    // El profesor no pidió nada (totalItems 0), pero el alumno escribió algo.
-    if (info.totalItems === 0 && info.recibida && info.recibida !== "---") {
-      return (
-        <div className="flex flex-col space-y-2 opacity-75">
-          {/* Lo que escribió el alumno (Tachado suave gris) */}
-          <div className="p-2 rounded border bg-gray-100 border-gray-300 text-gray-600 line-through decoration-gray-400">
-            <div className="font-medium text-xs">
-              {info.recibida}
-            </div>
-          </div>
-          
-          {/* Mensaje de advertencia */}
-          <div className="text-[10px] text-orange-600 font-bold flex items-center bg-orange-50 p-1 rounded w-max border border-orange-100">
-            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-            NO REQUERÍA RESPUESTA
-          </div>
-        </div>
-      );
-    }
-
-    // --- CASO: PERFECTO (Verde) ---
-    if (info.esCorrecta) {
-      return (
-        <div className="flex items-center text-green-700 font-medium bg-green-50 p-2 rounded border border-green-100">
-          <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-          {info.recibida}
-        </div>
-      );
-    }
-
-    // --- CASO: PARCIAL O INCORRECTO ---
-    const porcentaje = info.totalItems > 0 ? (info.aciertos / info.totalItems) : 0;
-    const esCasiPerfecto = porcentaje > 0.8; // Más del 80% bien se ve amarillo, menos se ve rojo
+    const badges = {
+      "CORRECTO": "bg-green-100 text-green-800 border-green-200",
+      "PARCIAL": "bg-yellow-100 text-yellow-800 border-yellow-200",
+      "INCORRECTO": "bg-red-100 text-red-800 border-red-200",
+      "SIN_RESPONDER": "bg-gray-100 text-gray-800 border-gray-200"
+    };
+    const style = badges[estado] || badges["SIN_RESPONDER"];
 
     return (
-      <div className="flex flex-col space-y-2">
-        {/* Lo que escribió el alumno (Con color según si estuvo cerca o lejos) */}
-        <div className={`p-2 rounded border ${esCasiPerfecto ? 'bg-yellow-50 border-yellow-200 text-yellow-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-          <div className="font-medium">
-            {info.recibida || "(Vacío)"}
-          </div>
-          
-          {/* Badge de Aciertos */}
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold tracking-wider opacity-70">
-              Aciertos:
-            </span>
-            <span className="text-xs font-bold bg-white px-2 py-0.5 rounded shadow-sm border border-gray-100">
-              {info.aciertos} / {info.totalItems}
-            </span>
-          </div>
-        </div>
-        
-        {/* La corrección (Lo esperado) */}
-        <div className="text-xs text-gray-500 pl-2 border-l-2 border-gray-300">
-          <span className="font-bold block text-gray-700 uppercase text-[10px] mb-1">Debía ser:</span> 
-          {info.esperada}
-        </div>
+      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${style}`}>
+        {estado === "SIN_RESPONDER" ? "NO RESPONDIÓ" : estado}
+      </span>
+    );
+  };
+
+  const getProgressBar = (porcentaje) => {
+    const color = porcentaje >= 60 ? 'bg-green-500' : porcentaje >= 30 ? 'bg-yellow-500' : 'bg-red-500';
+    return (
+      <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+        <div 
+          className={`${color} h-2 rounded-full transition-all duration-500`}
+          style={{ width: `${porcentaje}%` }}
+        />
       </div>
     );
   };
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-8 animate-fade-in-up">
       
       {/* --- TARJETAS DE RESUMEN --- */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-center">
-          <h3 className="text-gray-500 font-medium uppercase text-sm tracking-wider">Nota Final</h3>
-          <p className={`text-5xl font-bold mt-2 ${resumen.notaFinal >= 10 ? 'text-blue-600' : 'text-red-500'}`}>
-            {resumen.notaFinal}
-          </p>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-xl shadow-lg border-2 border-blue-200 text-center transform hover:scale-105 transition-transform">
+          <h3 className="text-gray-500 font-bold uppercase text-xs tracking-wider mb-2">Calificación</h3>
+          <div className={`text-5xl font-black ${porcentajeGeneral >= 60 ? 'text-green-600' : 'text-red-500'}`}>
+            {porcentajeGeneral.toFixed(1)}%
+          </div>
+          <div className="text-sm text-gray-600 mt-2 font-medium">
+            {puntajeObtenido.toFixed(2)} / {puntajeTotal} pts
+          </div>
         </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-center">
-          <h3 className="text-gray-500 font-medium uppercase text-sm tracking-wider">Puntos Obtenidos</h3>
-          <p className="text-3xl font-bold text-gray-800 mt-2">
-            {resumen.puntosObtenidos} <span className="text-gray-400 text-lg">/ {resumen.puntosTotales}</span>
-          </p>
+
+        <div className="bg-green-50 p-6 rounded-xl shadow-sm border border-green-200 text-center">
+          <h3 className="text-green-700 font-bold uppercase text-xs mb-2">✓ Correctas</h3>
+          <div className="text-4xl font-black text-green-600">{correctas}</div>
         </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-center">
-          <h3 className="text-gray-500 font-medium uppercase text-sm tracking-wider">Preguntas</h3>
-          <p className="text-3xl font-bold text-gray-800 mt-2">{resumen.totalPreguntas}</p>
+        <div className="bg-yellow-50 p-6 rounded-xl shadow-sm border border-yellow-200 text-center">
+          <h3 className="text-yellow-700 font-bold uppercase text-xs mb-2">⚠️ Parciales</h3>
+          <div className="text-4xl font-black text-yellow-600">{parciales}</div>
+        </div>
+        <div className="bg-red-50 p-6 rounded-xl shadow-sm border border-red-200 text-center">
+          <h3 className="text-red-700 font-bold uppercase text-xs mb-2">✗ Incorrectas</h3>
+          <div className="text-4xl font-black text-red-600">{incorrectas + noRespondidas}</div>
         </div>
       </div>
 
       {/* --- TABLA DETALLADA --- */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
-          <h3 className="font-bold text-gray-700">Detalle de la Corrección</h3>
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+        <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-5">
+          <h3 className="font-bold text-white text-xl flex items-center gap-2">
+            <span>📋</span> Detalle de Corrección
+          </h3>
         </div>
         
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-100 text-gray-600 uppercase font-semibold text-xs">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-100 text-gray-700 uppercase font-bold text-xs">
               <tr>
-                <th className="p-3 w-10">#</th>
-                <th className="p-3 w-32">Pregunta</th>
-                <th className="p-3 w-20 text-center">Nota</th>
-                <th className="p-3 w-24 text-center">Estado</th>
-                <th className="p-3 w-64">Gramática (Respuesta)</th>
-                <th className="p-3 w-64">Clasificación (Respuesta)</th>
+                <th className="p-4 text-left w-16">ID</th>
+                <th className="p-4 text-left w-1/3">Pregunta (Clave)</th>
+                <th className="p-4 text-center w-32">Puntaje</th>
+                <th className="p-4 text-left">Respuesta Estudiante</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {detalle.map((item, index) => (
-                <tr key={index} className={`hover:bg-gray-50 transition-colors 
-                  ${item.estado === 'INCORRECTA' ? 'bg-red-50/30' : ''} 
-                  ${item.estado === 'PARCIAL' ? 'bg-yellow-50/30' : ''}`}
-                >
-                  <td className="p-3 font-mono text-gray-500 align-top">{item.id}</td>
-                  <td className="p-3 font-medium text-gray-800 align-top">{item.pregunta}</td>
+            <tbody className="divide-y divide-gray-200">
+              {preguntas.map((pregunta, index) => (
+                <tr key={index} className="hover:bg-gray-50 transition-colors">
                   
-                  <td className="p-3 text-center align-top">
-                    <span className="font-bold text-gray-800">{item.valorObtenido}</span>
-                    <span className="text-gray-400 text-xs"> / {item.valorTotal}</span>
-                  </td>
-                  
-                  <td className="p-3 text-center align-top">
-                    {getStatusBadge(item.estado)}
+                  {/* ID */}
+                  <td className="p-4 align-top font-mono text-indigo-600 font-bold text-center">
+                    {pregunta.id}
                   </td>
 
-                  <td className="p-3 align-top bg-white/50 border-l border-gray-100">
-                    {renderCellContent(item.gramatica)}
+                  {/* PREGUNTA (ESPERADA) */}
+                  <td className="p-4 align-top">
+                    {pregunta.palabraObjetivo && (
+                      <div className="mb-1">
+                        <span className="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded text-xs font-bold">
+                          {pregunta.palabraObjetivo}
+                        </span>
+                      </div>
+                    )}
+                    <div className="text-gray-600 text-xs italic leading-relaxed">
+                      {pregunta.textoCompleto}
+                    </div>
                   </td>
 
-                  <td className="p-3 align-top bg-white/50 border-l border-gray-100">
-                    {renderCellContent(item.clasificacion)}
+                  {/* PUNTAJE Y ESTADO */}
+                  <td className="p-4 align-top text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      {getStatusBadge(pregunta.estado)}
+                      
+                      <div className="font-bold text-gray-800">
+                        {pregunta.puntosGanados.toFixed(2)} <span className="text-gray-400 text-xs font-normal">/ {pregunta.puntosTotales}</span>
+                      </div>
+                      
+                      <div className="w-16">
+                        {getProgressBar(pregunta.porcentajeAcierto)}
+                      </div>
+                    </div>
                   </td>
+
+                  {/* RESPUESTA ESTUDIANTE (CON HIGHLIGHTER) */}
+                  <td className="p-4 align-top">
+                    <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-gray-700 font-medium leading-relaxed">
+                      {/* Usamos el nuevo componente aquí */}
+                      <StudentAnswerHighlighter 
+                        text={pregunta.respuestaEstudiante} 
+                        keyText={pregunta.textoCompleto} 
+                      />
+                    </div>
+                  </td>
+
                 </tr>
               ))}
             </tbody>
